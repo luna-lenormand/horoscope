@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>High-Precision Horoscope Chart</title>
+    <!-- Google Fonts: 優雅な明朝体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;600&display=swap" rel="stylesheet">
+    <!-- スイス・エフェメリスJavaScript版（CDN経由） -->
+    <script src="https://cdn.jsdelivr.net/npm/swephjs@1.1.0/dist/sweph.min.js"></script>
+    <style>
+        :root {
+            --chart-bg: #ffffff;
+            --chart-outer: #d4a373; /* ブラウン系 */
+            --chart-grid: #eeeeee; /* 淡いグレー */
+            --text-charcoal: #333333;
+            --input-bg: #fdfbf7;
+        }
+
+        body {
+            font-family: 'Noto Serif JP', serif;
+            background-color: #f8f9fa;
+            color: var(--text-charcoal);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+            max-width: 500px;
+            width: 100%;
+            margin-bottom: 40px;
+            text-align: center;
+        }
+
+        h1 {
+            font-weight: 300;
+            font-size: 1.8rem;
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #888;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            font-family: inherit;
+            box-sizing: border-box;
+            background: var(--input-bg);
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: var(--text-charcoal);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: 0.3s;
+            margin-top: 15px;
+            font-weight: 600;
+        }
+
+        button:hover { opacity: 0.8; }
+
+        #chart-area { text-align: center; display: none; } /* 初期は非表示 */
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.08);
+            border-radius: 50%; /* 円形にする */
+        }
+
+        #save-btn {
+            background-color: var(--chart-outer);
+            margin-top: 25px;
+            width: auto;
+            padding: 10px 30px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Horoscope</h1>
+    <div class="input-group">
+        <label>生年月日</label>
+        <input type="date" id="birthDate" value="1978-01-22">
+    </div>
+    <div class="input-group">
+        <label>誕生時間</label>
+        <input type="time" id="birthTime" value="18:00">
+    </div>
+    <div class="input-group">
+        <label>出生地 (都道府県)</label>
+        <select id="place">
+            <option value="139.78,35.67">東京都 (139E46, 35N40)</option>
+            <!-- 他の都道府県は正確な経緯度を調べて追加してください -->
+        </select>
+    </div>
+    <button onclick="generatePrecisionHoroscope()">チャートを生成</button>
+</div>
+
+<div id="chart-area">
+    <canvas id="horoscopeCanvas" width="1000" height="1000"></canvas>
+    <button id="save-btn" onclick="saveImage()">画像を保存する</button>
+</div>
+
+<script>
+    // 天体と星座のUnicode記号とデータ
+    const zodiacSigns = [
+        { name: "牡羊座", symbol: "♈", color: "#e74c3c" }, // 赤
+        { name: "牡牛座", symbol: "♉", color: "#2ecc71" }, // 緑
+        { name: "双子座", symbol: "♊", color: "#f1c40f" }, // 黄
+        { name: "蟹座", symbol: "♋", color: "#3498db" },   // 青
+        { name: "獅子座", symbol: "♌", color: "#e67e22" }, // オレンジ
+        { name: "乙女座", symbol: "♍", color: "#95a5a6" }, // グレー
+        { name: "天秤座", symbol: "♎", color: "#d35400" }, // 濃オレンジ
+        { name: "蠍座", symbol: "♏", color: "#27ae60" },   // 濃緑
+        { name: "射手座", symbol: "♐", color: "#c0392b" }, // 濃赤
+        { name: "山羊座", symbol: "♑", color: "#2980b9" }, // 濃青
+        { name: "水瓶座", symbol: "♒", color: "#f39c12" }, // 濃黄
+        { name: "魚座", symbol: "♓", color: "#7f8c8d" }    // 濃グレー
+    ];
+
+    const planetsData = [
+        { name: "太陽", symbol: "☉", color: "#e67e22", swid: 0 },
+        { name: "月", symbol: "☽", color: "#f1c40f", swid: 1 },
+        { name: "水星", symbol: "☿", color: "#7f8c8d", swid: 2 },
+        { name: "金星", symbol: "♀", color: "#e84393", swid: 3 },
+        { name: "火星", symbol: "♂", color: "#c0392b", swid: 4 },
+        { name: "木星", symbol: "♃", color: "#9b59b6", swid: 5 },
+        { name: "土星", symbol: "♄", color: "#34495e", swid: 6 },
+        { name: "天王星", symbol: "♅", color: "#16a085", swid: 7 },
+        { name: "海王星", symbol: "♆", color: "#2980b9", swid: 8 },
+        { name: "冥王星", symbol: "♇", color: "#8e44ad", swid: 9 }
+    ];
+
+    async function generatePrecisionHoroscope() {
+        const dateVal = document.getElementById('birthDate').value;
+        const timeVal = document.getElementById('birthTime').value;
+        const placeVal = document.getElementById('place').value.split(',');
+
+        // 1. スイス・エフェメリスによる計算
+        // 日時をUTCに変換
+        const localDate = new Date(`${dateVal}T${timeVal}:00`);
+        const utcDate = new Date(localDate.getTime() + (localDate.getTimezoneOffset() * 60000));
+        
+        const year = utcDate.getUTCFullYear();
+        const month = utcDate.getUTCMonth() + 1;
+        const day = utcDate.getUTCDate();
+        const hour = utcDate.getUTCHours() + (utcDate.getUTCMinutes() / 60);
+
+        const lat = parseFloat(placeVal[1]);
+        const lon = parseFloat(placeVal[0]);
+
+        // 天体位置の計算 (スイス・エフェメリス)
+        const planetsWithPos = await Promise.all(planetsData.map(async (p) => {
+            // 黄経を計算 (swe_calc_ut)
+            // 注意: 実際のライブラリ呼び出しはライブラリのAPIに依存します。
+            // ここではライブラリが存在すると仮定した概念的なコードです。
+            const res = await sweph.swe_calc_ut(year, month, day, hour, p.swid, 0); // sweph.SEFLG_SPEED
+            return { ...p, long: res.longitude };
+        }));
+
+        // ハウス計算 (swe_houses)
+        const housesRes = await sweph.swe_houses(year, month, day, hour, lat, lon, 'P'); // 'P' is Placidus
+
+        // 2. 描画処理
+        const canvas = document.getElementById('horoscopeCanvas');
+        drawHoroscope(canvas, planetsWithPos, housesRes);
+
+        document.getElementById('chart-area').style.display = 'block';
+    }
+
+    function drawHoroscope(canvas, planets, houses) {
+        const ctx = canvas.getContext('2d');
+        const cx = 500, cy = 500, r = 450;
+        ctx.clearRect(0, 0, 1000, 1000);
+
+        // 背景
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, 1000, 1000);
+
+        // 1. 外周の星座盤
+        ctx.strokeStyle = "#d4a373";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 2. 星座区切り線と記号
+        zodiacSigns.forEach((sign, i) => {
+            const angle = (i * 30 - 90) * Math.PI / 180;
+            ctx.beginPath();
+            ctx.moveTo(cx + (r - 80) * Math.cos(angle), cy + (r - 80) * Math.sin(angle));
+            ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+            ctx.strokeStyle = "#eeeeee";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 星座記号 (Unicode)
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle + (15 * Math.PI / 180));
+            ctx.fillStyle = sign.color;
+            ctx.font = "300 40px sans-serif"; // Unicode記号用
+            ctx.textAlign = "center";
+            ctx.fillText(sign.symbol, r - 40, 15);
+            ctx.restore();
+        });
+
+        // 3. ハウス区切り線の描画
+        houses.cusps.forEach((cusp, i) => {
+            if (i < 12) {
+                const angle = (cusp - 90) * Math.PI / 180;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + (r - 80) * Math.cos(angle), cy + (r - 80) * Math.sin(angle));
+                ctx.strokeStyle = (i === 0 || i === 9) ? "#333333" : "#dddddd"; // ASC/MCは濃く
+                ctx.lineWidth = (i === 0 || i === 9) ? 2 : 1;
+                ctx.stroke();
+            }
+        });
+
+        // 4. 天体の描画 ( Unicode記号 )
+        planets.forEach(p => {
+            const angle = (p.long - 90) * Math.PI / 180;
+            const x = cx + (r - 120) * Math.cos(angle);
+            const y = cy + (r - 120) * Math.sin(angle);
+
+            // 天体記号 (Unicode)
+            ctx.fillStyle = p.color;
+            ctx.font = "40px sans-serif"; // Unicode記号用
+            ctx.textAlign = "center";
+            ctx.fillText(p.symbol, x, y + 15);
+        });
+    }
+
+    function saveImage() {
+        const canvas = document.getElementById('horoscopeCanvas');
+        const link = document.createElement('a');
+        link.download = 'precision-horoscope.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }
+</script>
+
+</body>
+</html>
